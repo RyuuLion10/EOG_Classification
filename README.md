@@ -3,6 +3,39 @@
 這個專案是給 University of Malta 公開雙通道 EOG 資料使用的最小可跑版本。
 目標是先把資料整理、前處理、TensorFlow 1D-CNN 訓練與模型儲存整條鏈打通。
 
+## 目前最佳結果
+
+目前最佳版本使用：
+
+- `ControlSignal` 切出主要 target saccade 段
+- `forward` 類別做保守抽樣，避免嚴重類別失衡
+- `0.5–20 Hz` band-pass + baseline removal + resample 到 `256`
+- 1D-CNN 輸入 shape: `(N, 256, 2)`
+
+在目前整理後的資料集上：
+
+- dataset size: `2246`
+- class counts: `down 244 / forward 449 / left 682 / right 649 / up 222`
+- test accuracy: `0.9267`
+
+測試集 confusion matrix 摘要：
+
+```text
+         down  forward  left  right  up
+down       34        0    11      4   0
+forward     0       90     0      0   0
+left        0        0   137      0   0
+right       2        1     0    123   4
+up          1        0     8      2  33
+```
+
+重點觀察：
+
+- `forward` 已不再大量干擾 `up/down`
+- `left/right` 幾乎已經分得很乾淨
+- `up/down` 仍有一部分會混到 `left`，尤其是 `down -> left` 和 `up -> left`
+- 目前 `up` recall 約 `0.75`，`down` recall 約 `0.694`
+
 ## 資料夾結構
 
 把每個 trial 存成一個 CSV，並放在對應類別底下：
