@@ -1,0 +1,70 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Jupyter / notebooks
+.ipynb_checkpoints/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Local datasets and experiment outputs
+dataset/
+raw_eyecon/
+artifacts/
+checkpoints/
+runs/
+
+# Large temporary exports
+*.npy
+*.npz
+*.mat
+*.h5
+*.keras
+*.pb
+*.onnx
+
+# Keil / embedded build outputs
+*.axf
+*.bin
+*.hex
+*.map
+*.lst
+*.o
+*.d
+*.crf
+*.dep
+*.bak
+*.tmp
+*.scvd
+*.uvguix.*
+*.uvoptx
+*.htm
+KEIL/Objects/
+KEIL/List/
+KEIL/release/
+
+# Flash / serial local artifacts
+*.build_log
+*.build_log.htm
+
+# Optional local captures
+captures/
+exports/
