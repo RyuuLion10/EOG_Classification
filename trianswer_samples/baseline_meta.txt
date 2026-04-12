@@ -1,0 +1,8 @@
+label=baseline
+source_ch1=TriAnswer_CH1_20260412192819_Middle(500Hz).txt
+source_ch2=TriAnswer_CH2_20260412192819_Middle(500Hz).txt
+ch1=horizontal
+ch2=vertical
+sampling_rate_hz=500
+sample_count=5004
+duration_seconds=10.008
