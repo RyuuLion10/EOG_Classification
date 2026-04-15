@@ -1,7 +1,11 @@
-# EOG Classification
+# Blinkfree
 
-This repository contains an end-to-end EOG classification workflow:
-
+This repository contains a pipeline to achieve Smart Home Appliances control:
+```
+TriAnswer ─UART1─▶ M55M1 ─UART2─▶ [BLE 模組] ∿∿∿BLE∿∿∿▶ 智慧家電
+                     │
+                     └─Debug UART─▶ PC (log)
+```
 - Python training and evaluation for a 5-class EOG model
 - TensorFlow Lite INT8 export
 - Ethos-U / ARM M55M1 deployment files
