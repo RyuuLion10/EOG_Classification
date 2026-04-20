@@ -1,35 +1,35 @@
 {
-  "model_path": "m55m1_deploy\\vela_out\\eog_1dcnn_int8_vela.tflite",
-  "model_size_bytes": 20992,
+  "model_path": "artifacts\\eog_1dcnn_int8.tflite",
+  "model_size_bytes": 28096,
   "inputs": [
     {
-      "tensor_index": 3,
-      "name": "serving_default_input_layer:0",
+      "tensor_index": 0,
+      "name": "serving_default_keras_tensor:0",
       "shape": [
         1,
         256,
         2
       ],
-      "type": 9,
+      "type": 1,
       "quantization": {
         "scale": [
-          0.03121989034116268
+          0.045273251831531525
         ],
         "zero_point": [
-          -24
+          -7
         ]
       }
     }
   ],
   "outputs": [
     {
-      "tensor_index": 4,
+      "tensor_index": 0,
       "name": "StatefulPartitionedCall_1:0",
       "shape": [
         1,
         5
       ],
-      "type": 9,
+      "type": 1,
       "quantization": {
         "scale": [
           0.00390625
@@ -42,10 +42,10 @@
   ],
   "operators": [
     {
-      "index": 0,
-      "builtin_code": 32,
-      "builtin_name": "CUSTOM",
-      "version": 1
+      "index": -1,
+      "builtin_code": -1,
+      "builtin_name": "UNKNOWN",
+      "version": -1
     }
   ]
 }

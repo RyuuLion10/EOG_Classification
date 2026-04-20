@@ -11,7 +11,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 
 
-CLASS_NAMES = ["up", "down", "left", "right", "forward"]
+CLASS_NAMES = ["blink", "down", "left", "right", "up"]
 DEFAULT_DATA_DIR = "dataset"
 DEFAULT_ARTIFACT_DIR = "artifacts"
 ORIG_FS = 176
@@ -116,7 +116,9 @@ def split_dataset(X, y, test_size=0.2, val_size=0.1, random_state=42):
     unique_labels, counts = np.unique(y, return_counts=True)
     min_count = counts.min()
     if min_count < 3:
-        class_counts = {int(label): int(count) for label, count in zip(unique_labels, counts)}
+        class_counts = {
+            int(label): int(count) for label, count in zip(unique_labels, counts)
+        }
         raise ValueError(
             "Each class needs at least 3 samples for train/val/test stratified split. "
             f"Current encoded class counts: {class_counts}"
@@ -179,7 +181,30 @@ def ensure_dir(path):
     Path(path).mkdir(parents=True, exist_ok=True)
 
 
-def save_metadata(output_dir, label_encoder, history, test_metrics, args):
+def representative_dataset(X, max_samples=100):
+    limit = min(len(X), max_samples)
+    for i in range(limit):
+        yield [X[i : i + 1].astype(np.float32)]
+
+
+def export_int8_tflite(model, X_calib, tflite_path):
+    import tensorflow as tf
+
+    converter = tf.lite.TFLiteConverter.from_keras_model(model)
+    converter.optimizations = [tf.lite.Optimize.DEFAULT]
+    converter.representative_dataset = lambda: representative_dataset(X_calib)
+    converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
+    converter.inference_input_type = tf.int8
+    converter.inference_output_type = tf.int8
+    tflite_model = converter.convert()
+
+    out_path = Path(tflite_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_bytes(tflite_model)
+    return out_path
+
+
+def save_metadata(output_dir, label_encoder, history, test_metrics, args, tflite_path=None):
     metadata = {
         "classes": list(label_encoder.classes_),
         "target_len": args.target_len,
@@ -189,6 +214,8 @@ def save_metadata(output_dir, label_encoder, history, test_metrics, args):
         "test_loss": float(test_metrics[0]),
         "test_accuracy": float(test_metrics[1]),
     }
+    if tflite_path is not None:
+        metadata["tflite_path"] = str(tflite_path)
 
     with open(os.path.join(output_dir, "metadata.json"), "w", encoding="utf-8") as f:
         json.dump(metadata, f, indent=2, ensure_ascii=False)
@@ -205,6 +232,11 @@ def parse_args():
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--random-state", type=int, default=42)
+    parser.add_argument("--export-tflite", action="store_true")
+    parser.add_argument(
+        "--tflite-path",
+        default=os.path.join(DEFAULT_ARTIFACT_DIR, "eog_1dcnn_int8.tflite"),
+    )
     return parser.parse_args()
 
 
@@ -267,7 +299,17 @@ def main():
     model.save(model_path)
     print(f"Saved model to {model_path}")
 
-    save_metadata(args.output_dir, label_encoder, history, test_metrics, args)
+    tflite_path = None
+    if args.export_tflite:
+        tflite_path = export_int8_tflite(model, X_train, args.tflite_path)
+        print(f"Saved INT8 TFLite model to {tflite_path}")
+
+    save_metadata(output_dir=args.output_dir,
+                  label_encoder=label_encoder,
+                  history=history,
+                  test_metrics=test_metrics,
+                  args=args,
+                  tflite_path=tflite_path)
 
 
 if __name__ == "__main__":

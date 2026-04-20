@@ -5,9 +5,11 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_MODEL = REPO_ROOT / "eog_1dcnn_int8.tflite"
+DEFAULT_MODEL = REPO_ROOT / "artifacts" / "eog_1dcnn_int8.tflite"
 DEFAULT_OUTPUT_CPP = REPO_ROOT / "m55m1_deploy" / "Model" / "NN_Model_INT8.tflite.cpp"
 DEFAULT_SUMMARY = REPO_ROOT / "m55m1_deploy" / "eog_model_summary.json"
+DEFAULT_METADATA = REPO_ROOT / "artifacts" / "metadata.json"
+DEFAULT_CONFIG_HEADER = REPO_ROOT / "m55m1_deploy" / "Model" / "include" / "EogModelConfig.hpp"
 TFLM_ROOT = Path(
     r"C:\Users\User\Desktop\ML_M55M1_SampleCode\M55M1BSP-3.01.003\ThirdParty\tflite_micro"
 )
@@ -36,8 +38,11 @@ def bytes_to_cpp_array(buf: bytes) -> str:
 
 
 def inspect_model(model_path: Path) -> dict:
-    add_tflite_schema_paths()
-    import schema_py_generated as schema
+    try:
+        add_tflite_schema_paths()
+        import schema_py_generated as schema
+    except FileNotFoundError:
+        return inspect_model_with_tensorflow(model_path)
 
     buf = model_path.read_bytes()
     model = schema.Model.GetRootAsModel(buf, 0)
@@ -58,9 +63,7 @@ def inspect_model(model_path: Path) -> dict:
             "shape": [tensor.Shape(i) for i in range(tensor.ShapeLength())],
             "type": tensor.Type(),
             "quantization": {
-                "scale": [quant.Scale(i) for i in range(quant.ScaleLength())]
-                if quant
-                else [],
+                "scale": [quant.Scale(i) for i in range(quant.ScaleLength())] if quant else [],
                 "zero_point": [quant.ZeroPoint(i) for i in range(quant.ZeroPointLength())]
                 if quant
                 else [],
@@ -87,6 +90,36 @@ def inspect_model(model_path: Path) -> dict:
         "inputs": [tensor_summary(subgraph.Inputs(i)) for i in range(subgraph.InputsLength())],
         "outputs": [tensor_summary(subgraph.Outputs(i)) for i in range(subgraph.OutputsLength())],
         "operators": operators,
+    }
+
+
+def inspect_model_with_tensorflow(model_path: Path) -> dict:
+    import numpy as np
+    import tensorflow as tf
+
+    interpreter = tf.lite.Interpreter(model_path=str(model_path))
+    input_details = interpreter.get_input_details()
+    output_details = interpreter.get_output_details()
+
+    def tensor_summary(detail: dict, tensor_index: int) -> dict:
+        scale, zero_point = detail["quantization"]
+        return {
+            "tensor_index": tensor_index,
+            "name": detail["name"],
+            "shape": detail["shape"].tolist(),
+            "type": int(np.dtype(detail["dtype"]).num),
+            "quantization": {
+                "scale": [float(scale)],
+                "zero_point": [int(zero_point)],
+            },
+        }
+
+    return {
+        "model_path": str(model_path),
+        "model_size_bytes": model_path.stat().st_size,
+        "inputs": [tensor_summary(detail, idx) for idx, detail in enumerate(input_details)],
+        "outputs": [tensor_summary(detail, idx) for idx, detail in enumerate(output_details)],
+        "operators": [{"index": -1, "builtin_code": -1, "builtin_name": "UNKNOWN", "version": -1}],
     }
 
 
@@ -127,6 +160,68 @@ size_t GetModelLen()
     output_cpp.write_text(cpp_text, encoding="utf-8", newline="\n")
 
 
+def load_metadata(metadata_path: Path) -> dict | None:
+    if not metadata_path.is_file():
+        return None
+    return json.loads(metadata_path.read_text(encoding="utf-8"))
+
+
+def generate_config_header(summary: dict, metadata: dict | None) -> str:
+    input_tensor = summary["inputs"][0]
+    output_tensor = summary["outputs"][0]
+
+    input_shape = input_tensor["shape"]
+    if len(input_shape) != 3:
+        raise ValueError(f"Expected input shape [1, frames, channels], got {input_shape}")
+
+    if metadata and metadata.get("classes"):
+        labels = metadata["classes"]
+    else:
+        labels = [f"class_{i}" for i in range(output_tensor["shape"][-1])]
+
+    input_scale = input_tensor["quantization"]["scale"][0]
+    input_zero_point = input_tensor["quantization"]["zero_point"][0]
+    output_scale = output_tensor["quantization"]["scale"][0]
+    output_zero_point = output_tensor["quantization"]["zero_point"][0]
+
+    label_lines = "\n".join(f'    "{label}",' for label in labels)
+
+    return f"""#ifndef EOG_MODEL_CONFIG_HPP
+#define EOG_MODEL_CONFIG_HPP
+
+#include <cstddef>
+#include <cstdint>
+
+namespace eog
+{{
+static constexpr size_t kInputFrames = {input_shape[1]};
+static constexpr size_t kInputChannels = {input_shape[2]};
+static constexpr size_t kInputElementCount = kInputFrames * kInputChannels;
+static constexpr size_t kClassCount = {len(labels)};
+
+static constexpr float kInputScale = {input_scale:.12g}f;
+static constexpr int32_t kInputZeroPoint = {input_zero_point};
+static constexpr float kOutputScale = {output_scale:.12g}f;
+static constexpr int32_t kOutputZeroPoint = {output_zero_point};
+
+static constexpr const char* kLabels[kClassCount] = {{
+{label_lines}
+}};
+}} /* namespace eog */
+
+#endif /* EOG_MODEL_CONFIG_HPP */
+"""
+
+
+def write_config_header(summary: dict, metadata: dict | None, config_header: Path) -> None:
+    config_header.parent.mkdir(parents=True, exist_ok=True)
+    config_header.write_text(
+        generate_config_header(summary, metadata),
+        encoding="utf-8",
+        newline="\n",
+    )
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Generate M55M1 deployment artifacts for the EOG int8 TFLite model."
@@ -134,6 +229,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model", type=Path, default=DEFAULT_MODEL)
     parser.add_argument("--output-cpp", type=Path, default=DEFAULT_OUTPUT_CPP)
     parser.add_argument("--summary", type=Path, default=DEFAULT_SUMMARY)
+    parser.add_argument("--metadata", type=Path, default=DEFAULT_METADATA)
+    parser.add_argument("--config-header", type=Path, default=DEFAULT_CONFIG_HEADER)
     return parser.parse_args()
 
 
@@ -143,12 +240,18 @@ def main() -> None:
         raise FileNotFoundError(f"Model not found: {args.model}")
 
     summary = inspect_model(args.model)
+    metadata = load_metadata(args.metadata)
+
     args.summary.parent.mkdir(parents=True, exist_ok=True)
     args.summary.write_text(json.dumps(summary, indent=2), encoding="utf-8", newline="\n")
     write_cpp_source(args.model, args.output_cpp)
+    write_config_header(summary, metadata, args.config_header)
 
     print(f"Wrote summary: {args.summary}")
     print(f"Wrote model source: {args.output_cpp}")
+    print(f"Wrote config header: {args.config_header}")
+    if metadata is None:
+        print(f"[warn] Metadata not found, generated fallback labels: {args.metadata}")
 
 
 if __name__ == "__main__":
